@@ -1,228 +1,90 @@
-use std::error::Error;
-
 use cairo::Context;
-use regex::Regex;
 
-#[derive(Debug)]
-pub struct Command {
-    cmd: char,
-    args: Vec<(f64, f64)>,
+pub struct Color {
+    c: u32,
 }
 
-impl Command {
-    fn translate(&self, tx: f64, ty: f64) -> Self {
-        let args = self
-            .args
-            .iter()
-            .map(|(x, y)| (x + tx, y + ty))
-            .collect::<Vec<_>>();
+impl Color {
+    pub fn from_rgb(r: u8, g: u8, b: u8) -> Self {
         Self {
-            cmd: self.cmd,
-            args,
+            c: (r as u32) << 16 | (g as u32) << 8 | (b as u32),
         }
     }
 
-    fn context(&self) -> (f64, f64) {
-        *self.args.last().unwrap_or(&(0.0, 0.0))
+    pub fn from_u32(c: u32) -> Self {
+        Self { c }
     }
 
-    fn to_str(&self, pt: (f64, f64)) -> (String, (f64, f64)) {
-        match self.cmd {
-            'M' => (
-                format!(
-                    "ctx.move_to({:0.6}, {:0.6});",
-                    self.args[0].0, self.args[0].1
-                ),
-                (self.args[0].0, self.args[0].1),
-            ),
-            'C' => (
-                format!(
-                    "ctx.curve_to({:0.6}, {:0.6}, {:0.6}, {:0.6}, {:0.6}, {:0.6});",
-                    self.args[0].0,
-                    self.args[0].1,
-                    self.args[1].0,
-                    self.args[1].1,
-                    self.args[2].0,
-                    self.args[2].1
-                ),
-                (self.args[2].0, self.args[2].1),
-            ),
-            'L' => (
-                format!(
-                    "ctx.line_to({:0.6}, {:0.6});",
-                    self.args[0].0, self.args[0].1
-                ),
-                (self.args[0].0, self.args[0].1),
-            ),
-            'H' => (
-                format!("ctx.line_to({:0.6}, {:0.6});", self.args[0].0, pt.1),
-                (self.args[0].0, pt.1),
-            ),
-            'V' => (
-                format!("ctx.line_to({:0.6}, {:0.6});", pt.0, self.args[0].1),
-                (pt.0, self.args[0].1),
-            ),
-            'z' | 'Z' => (String::from("ctx.close_path();"), (0.0, 0.0)),
-            _ => (format!("// TODO: immplement {}", self.cmd), (0.0, 0.0)),
-        }
+    pub fn r(&self) -> u8 {
+        (self.c >> 16) as u8
     }
 
-    fn from_str(s: &str, pt: (f64, f64)) -> Result<Self, Box<dyn Error>> {
-        let cmd = s.chars().next().ok_or("empty command")?;
-        let cmd = match cmd {
-            'M' | 'm' | 'L' | 'l' | 'H' | 'h' | 'V' | 'v' | 'C' | 'c' | 'S' | 's' | 'Q' | 'q'
-            | 'T' | 't' | 'A' | 'a' | 'Z' | 'z' => cmd,
-            _ => return Err("invalid command".into()),
-        };
-
-        let s = s[1..].trim();
-        if s.is_empty() {
-            return Ok(Self {
-                cmd,
-                args: Vec::new(),
-            });
-        }
-
-        let pattern = Regex::new(r"(\s|,)+")?;
-        let args = pattern
-            .split(s)
-            .map(|s| s.parse::<f64>())
-            .collect::<Result<Vec<_>, _>>()?;
-        let (px, py) = pt;
-        match cmd {
-            'H' => Ok(Self {
-                cmd: 'L',
-                args: vec![(args[0], py)],
-            }),
-            'V' => Ok(Self {
-                cmd: 'L',
-                args: vec![(px, args[0])],
-            }),
-            _ => Ok(Self {
-                cmd,
-                args: args.chunks(2).map(|x| (x[0], x[1])).collect::<Vec<_>>(),
-            }),
-        }
+    pub fn g(&self) -> u8 {
+        (self.c >> 8) as u8
     }
-}
 
-impl std::str::FromStr for Command {
-    type Err = Box<dyn Error>;
+    pub fn b(&self) -> u8 {
+        self.c as u8
+    }
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let cmd = s.chars().next().ok_or("empty command")?;
-        let cmd = match cmd {
-            'M' | 'm' | 'L' | 'l' | 'H' | 'h' | 'V' | 'v' | 'C' | 'c' | 'S' | 's' | 'Q' | 'q'
-            | 'T' | 't' | 'A' | 'a' | 'Z' | 'z' => cmd,
-            _ => return Err("invalid command".into()),
-        };
+    pub fn set(&self, ctx: &Context) {
+        ctx.set_source_rgb(
+            self.r() as f64 / 255.0,
+            self.g() as f64 / 255.0,
+            self.b() as f64 / 255.0,
+        );
+    }
 
-        let s = s[1..].trim();
-        if s.is_empty() {
-            return Ok(Self {
-                cmd,
-                args: Vec::new(),
-            });
-        }
-
-        let pattern = Regex::new(r"(\s|,)+")?;
-        let args = pattern
-            .split(s)
-            .map(|s| s.parse::<f64>())
-            .collect::<Result<Vec<_>, _>>()?;
-        match cmd {
-            'H' => Ok(Self {
-                cmd: 'H',
-                args: vec![(args[0], 0.0)],
-            }),
-            'V' => Ok(Self {
-                cmd: 'V',
-                args: vec![(0.0, args[0])],
-            }),
-            _ => Ok(Self {
-                cmd,
-                args: args.chunks(2).map(|x| (x[0], x[1])).collect::<Vec<_>>(),
-            }),
-        }
+    pub fn set_with_alpha(&self, ctx: &Context, alpha: f64) {
+        ctx.set_source_rgba(
+            self.r() as f64 / 255.0,
+            self.g() as f64 / 255.0,
+            self.b() as f64 / 255.0,
+            alpha,
+        );
     }
 }
 
 #[derive(Debug)]
-pub struct Commands {
-    cmds: Vec<Command>,
+pub struct Rect {
+    tl: (f64, f64),
+    br: (f64, f64),
 }
 
-impl Commands {
-    pub fn len(&self) -> usize {
-        self.cmds.len()
+impl Rect {
+    pub fn top_left(&self) -> &(f64, f64) {
+        &self.tl
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.cmds.is_empty()
+    pub fn bottom_right(&self) -> &(f64, f64) {
+        &self.br
     }
 
-    pub fn bounds(&self) -> ((f64, f64), (f64, f64)) {
-        let mut tl = (f64::MAX, f64::MAX);
-        let mut br = (f64::MIN, f64::MIN);
-        for cmd in &self.cmds {
-            for (x, y) in &cmd.args {
-                tl = (tl.0.min(*x), tl.1.min(*y));
-                br = (br.0.max(*x), br.1.max(*y));
-            }
-        }
-        (tl, br)
+    pub fn width(&self) -> f64 {
+        self.br.0 - self.tl.0
     }
 
-    pub fn normalize(&self) -> Self {
-        let ((tlx, tly), (brx, bry)) = self.bounds();
-        let tx = -tlx - (brx - tlx) / 2.0;
-        let ty = -tly - (bry - tly) / 2.0;
+    pub fn height(&self) -> f64 {
+        self.br.1 - self.tl.1
+    }
 
+    pub fn scale(&self, sx: f64, sy: f64) -> Self {
         Self {
-            cmds: self
-                .cmds
-                .iter()
-                .map(|cmd| cmd.translate(tx, ty))
-                .collect::<Vec<_>>(),
-        }
-    }
-
-    pub fn emit(&self) {
-        let mut ctx = (0.0, 0.0);
-        for cmd in &self.cmds {
-            let (s, pt) = cmd.to_str((ctx.0, ctx.1));
-            println!("{}", s);
-            ctx = pt;
+            tl: (self.tl.0 * sx, self.tl.1 * sy),
+            br: (self.br.0 * sx, self.br.1 * sy),
         }
     }
 }
 
-impl std::str::FromStr for Commands {
-    type Err = Box<dyn Error>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut pt = (0.0, 0.0);
-        let pattern = Regex::new(r"[MmLlHhVvCcSsQqTtAaZz][^MmLlHhVvCcSsQqTtAaZz]*")?;
-        let mut cmds = Vec::new();
-        for cmd in pattern.find_iter(s) {
-            let cmd = Command::from_str(cmd.as_str(), pt)?;
-            pt = cmd.context();
-            cmds.push(cmd);
-        }
-        Ok(Self { cmds })
-    }
-}
-
-pub trait Renderable {
-    fn bounds() -> ((f64, f64), (f64, f64));
-    fn create(ctx: &Context);
-}
-
-pub mod intuit_logo {
+pub mod logo_a {
+    use super::Rect;
     use cairo::Context;
 
-    pub fn bounds() -> ((f64, f64), (f64, f64)) {
-        ((-726.73, -146.137), (726.73, 146.137))
+    pub fn bounds() -> Rect {
+        Rect {
+            tl: (-726.73, -146.137),
+            br: (726.73, 146.137),
+        }
     }
 
     pub fn create(ctx: &Context) {
@@ -323,11 +185,15 @@ pub mod intuit_logo {
     }
 }
 
-pub mod empire_logo {
+pub mod logo_b {
+    use super::Rect;
     use cairo::Context;
 
-    pub fn bounds() -> ((f64, f64), (f64, f64)) {
-        ((-300.0, -300.00004), (300.0, 300.00004))
+    pub fn bounds() -> Rect {
+        Rect {
+            tl: (-300.0, -300.00004),
+            br: (300.0, 300.00004),
+        }
     }
 
     pub fn create(ctx: &Context) {
