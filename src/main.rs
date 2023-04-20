@@ -43,7 +43,7 @@ struct Args {
     #[clap(long, value_parser = Size::from_arg, default_value_t = Size::new(3456,  2234))]
     size: Size,
 
-    #[clap(long, default_value = "intuit.png")]
+    #[clap(long, default_value = "wallpaper.png")]
     dst: String,
 
     #[clap(long, default_value_t = false)]
